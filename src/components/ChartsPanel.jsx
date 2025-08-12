@@ -1,5 +1,5 @@
-// src/components/ChartsPanel.jsx
-import React from "react";
+import React, { useMemo } from "react";
+import { useUI } from "@/context/UIContext";
 import {
   LineChart,
   Line,
@@ -8,122 +8,174 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
 } from "recharts";
 
-const ChartsPanel = ({ readings }) => {
-  return (
-    <div className="grid gap-8 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
-      <ChartWrapper title="Temperature (°C)">
-        <LineChart data={readings}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-          <XAxis dataKey="timestamp" tick={false} />
-          <YAxis domain={[20, 60]} />
-          <Tooltip />
-          <Line
-            type="monotone"
-            dataKey="temperature"
-            stroke="#60a5fa"
-            strokeWidth={2}
-            dot={false}
-          />
-        </LineChart>
-      </ChartWrapper>
+function toEpochMs(input) {
+  if (input == null) return null;
+  if (typeof input === "number") return Number.isFinite(input) ? input : null;
+  if (input instanceof Date)
+    return Number.isFinite(input.getTime()) ? input.getTime() : null;
+  if (typeof input === "string") {
+    const n = Date.parse(input);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+function mapReading(r) {
+  return {
+    ts: toEpochMs(r.timestamp ?? r.timestampMs ?? r.ts),
+    power: r.powerOutput ?? r.power ?? r.power_output ?? null,
+    temperature: r.temperature ?? r.temp ?? null,
+    humidity: r.humidity ?? r.rh ?? null,
+    dust: r.dustLevel ?? r.dust ?? r.dust_level ?? null,
+    vibration: r.vibration ?? r.vib ?? null,
+    risk: r.microFractureRisk ?? r.micro_fracture_risk ?? null,
+  };
+}
 
-      <ChartWrapper title="Humidity (%)">
-        <AreaChart data={readings}>
-          <defs>
-            <linearGradient id="colorHum" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#67e8f9" stopOpacity={0.8} />
-              <stop offset="95%" stopColor="#67e8f9" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <XAxis dataKey="timestamp" tick={false} />
-          <YAxis domain={[0, 100]} />
-          <Tooltip />
-          <Area
-            type="monotone"
-            dataKey="humidity"
-            stroke="#67e8f9"
-            fillOpacity={1}
-            fill="url(#colorHum)"
-          />
-        </AreaChart>
-      </ChartWrapper>
-
-      <ChartWrapper title="Dust Level (%)">
-        <AreaChart data={readings}>
-          <XAxis dataKey="timestamp" tick={false} />
-          <YAxis domain={[20, 60]} />
-          <Tooltip />
-          <Area
-            type="monotone"
-            dataKey="dust_level"
-            stroke="#facc15"
-            fill="#facc1544"
-            fillOpacity={0.4}
-          />
-        </AreaChart>
-      </ChartWrapper>
-
-      <ChartWrapper title="Power Output (W)">
-        <LineChart data={readings}>
-          <XAxis dataKey="timestamp" tick={false} />
-          <YAxis domain={[100, 180]} />
-          <Tooltip />
-          <Line
-            type="monotone"
-            dataKey="power_output"
-            stroke="#34d399"
-            strokeWidth={2}
-            dot={false}
-          />
-        </LineChart>
-      </ChartWrapper>
-
-      <ChartWrapper title="Vibration (m/s²)">
-        <BarChart data={readings}>
-          <XAxis dataKey="timestamp" tick={false} />
-          <YAxis domain={[0, 0.2]} />
-          <Tooltip />
-          <Bar dataKey="vibration" fill="#f472b6" radius={[4, 4, 0, 0]} />
-        </BarChart>
-      </ChartWrapper>
-
-      <ChartWrapper title="Micro-Fracture Risk (%)">
-        <AreaChart data={readings}>
-          <defs>
-            <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#f87171" stopOpacity={0.8} />
-              <stop offset="95%" stopColor="#f87171" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <XAxis dataKey="timestamp" tick={false} />
-          <YAxis domain={[0, 1]} />
-          <Tooltip />
-          <Area
-            type="monotone"
-            dataKey="micro_fracture_risk"
-            stroke="#f87171"
-            fillOpacity={1}
-            fill="url(#colorRisk)"
-          />
-        </AreaChart>
-      </ChartWrapper>
+const Card = ({ title, children, height = 240 }) => (
+  <div className="rounded-xl shadow-md border border-white/10 bg-white/5 p-4">
+    <div className="text-xs uppercase tracking-wide text-white/60 mb-2">
+      {title}
     </div>
-  );
-};
-
-const ChartWrapper = ({ title, children }) => (
-  <div className="bg-zinc-900 p-4 rounded-xl border border-zinc-800">
-    <h2 className="text-lg mb-2 font-medium text-indigo-300">{title}</h2>
-    <ResponsiveContainer width="100%" height={200}>
-      {children}
-    </ResponsiveContainer>
+    <div style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        {children}
+      </ResponsiveContainer>
+    </div>
   </div>
 );
 
-export default ChartsPanel;
+export default function ChartsPanel({ readings = [] }) {
+  const { maxPoints } = useUI();
+
+  const data = useMemo(() => {
+    const mapped = readings.map(mapReading);
+    // Limita a los últimos N puntos
+    return mapped.length > maxPoints ? mapped.slice(-maxPoints) : mapped;
+  }, [readings, maxPoints]);
+
+  const commonGrid = (
+    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--fg) / .15)" />
+  );
+  const commonXAxis = (
+    <XAxis
+      dataKey="ts"
+      tickFormatter={(t) => (t ? new Date(t).toLocaleTimeString() : "")}
+      stroke="hsl(var(--fg) / .6)"
+    />
+  );
+  const commonTooltip = (
+    <Tooltip
+      contentStyle={{ background: "rgba(0,0,0,.7)", border: "none" }}
+      labelFormatter={(v) => (v ? new Date(v).toLocaleTimeString() : "")}
+    />
+  );
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Potencia */}
+      <Card title="Potencia (W)">
+        <LineChart data={data}>
+          {commonGrid}
+          {commonXAxis}
+          <YAxis stroke="hsl(var(--fg) / .6)" />
+          {commonTooltip}
+          <Line
+            type="monotone"
+            dataKey="power"
+            stroke="hsl(var(--chart-1))"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </Card>
+
+      {/* Temperatura & Humedad */}
+      <Card title="Temperatura (°C) & Humedad (%)">
+        <LineChart data={data}>
+          {commonGrid}
+          {commonXAxis}
+          <YAxis yAxisId="left" stroke="hsl(var(--fg) / .6)" />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            stroke="hsl(var(--fg) / .6)"
+          />
+          {commonTooltip}
+          <Line
+            yAxisId="left"
+            type="monotone"
+            dataKey="temperature"
+            stroke="hsl(var(--chart-2))"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+          <Line
+            yAxisId="right"
+            type="monotone"
+            dataKey="humidity"
+            stroke="hsl(var(--chart-3))"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </Card>
+
+      {/* Polvo */}
+      <Card title="Polvo (ppm)">
+        <LineChart data={data}>
+          {commonGrid}
+          {commonXAxis}
+          <YAxis stroke="hsl(var(--fg) / .6)" />
+          {commonTooltip}
+          <Line
+            type="monotone"
+            dataKey="dust"
+            stroke="hsl(var(--chart-4))"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </Card>
+
+      {/* Vibración & Riesgo */}
+      <Card title="Vibración (m/s²) & Riesgo de microfractura (0–1)">
+        <LineChart data={data}>
+          {commonGrid}
+          {commonXAxis}
+          <YAxis yAxisId="left" stroke="hsl(var(--fg) / .6)" />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            domain={[0, 1]}
+            stroke="hsl(var(--fg) / .6)"
+          />
+          {commonTooltip}
+          <Line
+            yAxisId="left"
+            type="monotone"
+            dataKey="vibration"
+            stroke="hsl(var(--chart-5))"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+          <Line
+            yAxisId="right"
+            type="monotone"
+            dataKey="risk"
+            stroke="hsl(var(--chart-3))"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </Card>
+    </div>
+  );
+}

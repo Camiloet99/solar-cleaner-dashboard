@@ -1,5 +1,4 @@
-// src/pages/SessionDashboard.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import {
@@ -9,6 +8,14 @@ import {
 import InfoPanel from "@/components/InfoPanel";
 import StatusPanel from "@/components/StatusPanel";
 import ChartsPanel from "@/components/ChartsPanel";
+import { useUI } from "@/context/UIContext";
+import useRelativeTime from "@/hooks/useRelativeTime";
+
+const MAX_BUFFER = 1200; // seguridad por si te llegan muchas
+
+function toTs(r) {
+  return r?.timestamp ?? r?.timestampMs ?? r?.ts ?? null;
+}
 
 const SessionDashboard = () => {
   const { sessionId } = useParams();
@@ -16,47 +23,109 @@ const SessionDashboard = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const { realtime, rangeMinutes, maxPoints } = useUI();
+
+  // Última lectura general
+  const last = readings[readings.length - 1] || null;
+  const lastTs = toTs(last) ?? Date.now();
+  const ago = useRelativeTime(lastTs);
+
+  // Ventana temporal (5m/15m/1h)
+  const cutoff = Date.now() - rangeMinutes * 60_000;
+  const timeWindow = useMemo(
+    () =>
+      readings.filter((r) => {
+        const t = toTs(r);
+        return t == null ? false : t >= cutoff;
+      }),
+    [readings, cutoff]
+  );
+
+  // Limita a los últimos N puntos (10/15/20) dentro de la ventana temporal
+  const windowReadings = useMemo(() => {
+    if (timeWindow.length <= maxPoints) return timeWindow;
+    return timeWindow.slice(-maxPoints);
+  }, [timeWindow, maxPoints]);
+
   useEffect(() => {
     const handler = (newReading) => {
-      setReadings((prev) => [...prev.slice(-14), newReading]);
+      if (!realtime) return;
 
-      if (newReading.micro_fracture_risk > 0.6) {
+      setReadings((prev) => {
+        const next =
+          prev.length > MAX_BUFFER - 1
+            ? [...prev.slice(-MAX_BUFFER + 1), newReading]
+            : [...prev, newReading];
+        return next;
+      });
+
+      const risk =
+        newReading.micro_fracture_risk ?? newReading.microFractureRisk ?? 0;
+      const dust =
+        newReading.dustLevel ?? newReading.dust ?? newReading.dust_level ?? 0;
+      const ts = toTs(newReading) ?? Date.now();
+
+      if (risk > 0.6) {
         setLogs((prev) => [
           {
             type: "ALERT",
-            message: `High micro-fracture risk (${newReading.micro_fracture_risk})`,
-            timestamp: newReading.timestamp,
+            message: `High micro-fracture risk (${risk.toFixed?.(2) ?? risk})`,
+            timestamp: ts,
           },
           ...prev.slice(0, 19),
         ]);
-      } else if (newReading.dust_level > 55) {
+      } else if (dust > 55) {
         setLogs((prev) => [
           {
             type: "INFO",
-            message: `Dust level elevated: ${newReading.dust_level}`,
-            timestamp: newReading.timestamp,
+            message: `Dust level elevated: ${dust}`,
+            timestamp: ts,
           },
           ...prev.slice(0, 19),
         ]);
       }
     };
+
     subscribeToSessionTelemetry(sessionId, handler);
     setLoading(false);
-    return () => unsubscribeFromTelemetry();
-  }, [sessionId]);
 
-  const last = readings[readings.length - 1];
-
-  const avg = (key) => {
-    const sum = readings.reduce((acc, r) => acc + (r[key] || 0), 0);
-    return readings.length > 0 ? (sum / readings.length).toFixed(2) : "-";
-  };
+    return () => {
+      try {
+        unsubscribeFromTelemetry(sessionId);
+      } catch {}
+    };
+  }, [sessionId, realtime]);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6">
-      <h1 className="text-3xl font-semibold mb-6 text-indigo-400">
-        Monitoring Session: <span className="text-white">{sessionId}</span>
-      </h1>
+    <div className="min-h-screen bg-[hsl(var(--bg))] text-[hsl(var(--fg))] p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Monitoring Session:{" "}
+            <span className="text-white/90">{sessionId}</span>
+          </h1>
+          <p className="text-sm text-white/60">Actualizado {ago}</p>
+        </div>
+
+        {/* Dot realtime */}
+        <div className="flex items-center gap-2 text-sm">
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white/40">
+            <span
+              className={`absolute inline-flex h-2.5 w-2.5 rounded-full ${
+                realtime ? "bg-emerald-400" : "bg-white/40"
+              }`}
+              style={{ inset: 0 }}
+            />
+            {realtime && (
+              <span
+                className="absolute inline-flex h-2.5 w-2.5 rounded-full animate-ping bg-emerald-400/60"
+                style={{ inset: 0 }}
+              />
+            )}
+          </span>
+          {realtime ? "Realtime activo" : "Realtime pausado"}
+        </div>
+      </div>
 
       {loading ? (
         <div className="flex justify-center items-center h-64">
@@ -64,9 +133,17 @@ const SessionDashboard = () => {
         </div>
       ) : (
         <>
-          <StatusPanel avg={avg} last={last} />
-          <InfoPanel last={last} logs={logs} />
-          <ChartsPanel readings={readings} />
+          {/* KPIs sobre la ventana actual */}
+          <StatusPanel
+            readings={windowReadings}
+            last={windowReadings[windowReadings.length - 1] ?? last}
+          />
+
+          {/* Eventos */}
+          <InfoPanel last={last} logs={logs} maxVisible={3} />
+
+          {/* Gráficas limitadas a N puntos */}
+          <ChartsPanel readings={windowReadings} />
         </>
       )}
     </div>

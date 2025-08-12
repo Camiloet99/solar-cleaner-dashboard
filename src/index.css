@@ -1,1 +1,54 @@
 @import "tailwindcss";
+
+/* Full-bleed dark app */
+html,
+body,
+#root {
+    height: 100%;
+}
+
+:root {
+    color-scheme: dark;
+}
+
+/* Paleta base + charts */
+:root {
+    --bg: 240 6% 10%;
+    --fg: 240 5% 96%;
+    --accent: 247 92% 67%;
+    --chart-1: 217 91% 60%;
+    --chart-2: 160 84% 39%;
+    --chart-3: 340 82% 52%;
+    --chart-4: 0 84% 60%;
+    --chart-5: 43 96% 56%;
+}
+
+/* Aplica fondo y color a TODO el sitio */
+@layer base {
+    body {
+        background-color: hsl(var(--bg));
+        color: hsl(var(--fg));
+    }
+}
+
+/* Suave degradé de fondo para que no se vea plano */
+.app-surface {
+    background:
+        radial-gradient(1200px 700px at 80% -10%, rgba(99, 102, 241, .12), transparent 60%),
+        radial-gradient(900px 500px at -10% 110%, rgba(16, 185, 129, .10), transparent 60%);
+}
+
+/* Scrollbar sutil en paneles */
+.thin-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, .2);
+    border-radius: 9999px;
+}
+
+.thin-scrollbar:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, .35);
+}

@@ -1,36 +1,144 @@
-// src/services/telemetryService.js
+import { Client } from '@stomp/stompjs';
+import { wsBrokerUrlFromApi } from '@/config';
 
-let intervalId = null;
-let listener = null;
+let client = null;
+let connected = false;
 
-// 🔁 Función para generar una lectura simulada
-function generateMockReading(sessionId) {
-  const now = new Date().toISOString();
+// Suscripciones "deseadas" (persisten aunque se caiga el socket)
+const desired = new Map();   // key -> { dest, handler }
+// Suscripciones activas en el broker actual
+const liveSubs = new Map();  // key -> StompSubscription
+
+function normalizeTelemetry(msg) {
   return {
-    sessionId,
-    timestamp: now,
-    temperature: +(30 + Math.random() * 10).toFixed(2),
-    humidity: +(50 + Math.random() * 20).toFixed(2),
-    dust_level: +(30 + Math.random() * 20).toFixed(2),
-    power_output: +(120 + Math.random() * 40).toFixed(2),
-    vibration: +(0.02 + Math.random() * 0.08).toFixed(3),
-    micro_fracture_risk: +(Math.random()).toFixed(2),
-    location: { lat: 6.251839, lng: -75.563591 },
+    ts: msg.timestampMs ?? msg.timestamp ?? Date.now(),
+    sessionId: msg.sessionId,
+    power: msg.power ?? msg.power_output ?? null,
+    temperature: msg.temperature ?? msg.temp ?? null,
+    humidity: msg.humidity ?? msg.rh ?? null,
+    dust: msg.dustLevel ?? msg.dust ?? msg.dust_level ?? null,
+    vibration: msg.vibration ?? msg.vib ?? null,
+    micro_fracture_risk: msg.microFractureRisk ?? msg.micro_fracture_risk ?? null,
   };
 }
 
-export function subscribeToSessionTelemetry(sessionId, onReading) {
-  if (intervalId) clearInterval(intervalId);
-  listener = onReading;
+function ensureClient() {
+  if (client?.active) return client;
 
-  intervalId = setInterval(() => {
-    const reading = generateMockReading(sessionId);
-    listener(reading);
-  }, 2000);
+  client = new Client({
+    brokerURL: wsBrokerUrlFromApi(), // ← nativo, sin SockJS
+    reconnectDelay: 3000,
+    heartbeatIncoming: 10000,
+    heartbeatOutgoing: 10000,
+    debug: () => {},
+
+    onConnect: () => {
+      connected = true;
+      // Re-suscribe todo lo “deseado”
+      for (const [key, d] of desired.entries()) {
+        if (!liveSubs.has(key)) {
+          const sub = client.subscribe(d.dest, (frame) => {
+            try {
+              const payload = JSON.parse(frame.body);
+              d.handler(payload);
+            } catch { /* ignore */ }
+          });
+          liveSubs.set(key, sub);
+        }
+      }
+    },
+
+    onStompError: (f) => {
+      // opcional: console.warn('STOMP error', f?.headers, f?.body);
+    },
+
+    onWebSocketClose: () => {
+      connected = false;
+      // Limpia subs activas, pero conserva “desired” para reintentar al reconectar
+      for (const s of liveSubs.values()) {
+        try { s.unsubscribe(); } catch {}
+      }
+      liveSubs.clear();
+    },
+  });
+
+  client.activate();
+  return client;
 }
 
-export function unsubscribeFromTelemetry() {
-  if (intervalId) clearInterval(intervalId);
-  intervalId = null;
-  listener = null;
+export function connectWS() {
+  ensureClient();
+}
+
+export function disconnectWS() {
+  for (const s of liveSubs.values()) {
+    try { s.unsubscribe(); } catch {}
+  }
+  liveSubs.clear();
+  desired.clear();
+  client?.deactivate();
+  client = null;
+  connected = false;
+}
+
+function addDesiredAndMaybeSubscribe(key, dest, rawHandler) {
+  // guarda el handler deseado (lo usaremos en re-suscripciones)
+  desired.set(key, { dest, handler: rawHandler });
+
+  if (connected) {
+    if (!liveSubs.has(key)) {
+      const sub = client.subscribe(dest, (frame) => {
+        try {
+          const payload = JSON.parse(frame.body);
+          rawHandler(payload);
+        } catch {}
+      });
+      liveSubs.set(key, sub);
+    }
+  }
+  // si no está conectado, se suscribirá en onConnect automáticamente
+}
+
+export function subscribeToSessionTelemetry(sessionId, handler) {
+  ensureClient();
+  const key = `telemetry:${sessionId}`;
+  const dest = `/topic/telemetry/${sessionId}`;
+  const wrapped = (payload) => handler(normalizeTelemetry(payload));
+
+  if (desired.has(key)) return; // ya pedida
+
+  addDesiredAndMaybeSubscribe(key, dest, wrapped);
+}
+
+export function unsubscribeFromTelemetry(sessionId) {
+  if (!sessionId) {
+    // borra todas las de telemetría
+    for (const [k, s] of liveSubs.entries()) {
+      if (k.startsWith('telemetry:')) { try { s.unsubscribe(); } catch {} liveSubs.delete(k); }
+    }
+    for (const k of Array.from(desired.keys())) {
+      if (k.startsWith('telemetry:')) desired.delete(k);
+    }
+    return;
+  }
+  const key = `telemetry:${sessionId}`;
+  desired.delete(key);
+  const sub = liveSubs.get(key);
+  if (sub) { try { sub.unsubscribe(); } catch {} liveSubs.delete(key); }
+}
+
+export function subscribeToPredictions(sessionId, handler) {
+  ensureClient();
+  const key = `pred:${sessionId}`;
+  const dest = `/topic/predictions/${sessionId}`;
+
+  if (desired.has(key)) return;
+  addDesiredAndMaybeSubscribe(key, dest, handler);
+}
+
+export function unsubscribeFromPredictions(sessionId) {
+  const key = `pred:${sessionId}`;
+  desired.delete(key);
+  const sub = liveSubs.get(key);
+  if (sub) { try { sub.unsubscribe(); } catch {} liveSubs.delete(key); }
 }
