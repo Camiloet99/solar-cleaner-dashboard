@@ -19,6 +19,11 @@ function normalize(r) {
     dust: pick(r, ["dustLevel", "dust", "dust_level"]),
     power: pick(r, ["powerOutput", "power", "power_output"]),
     risk: pick(r, ["microFractureRisk", "micro_fracture_risk", "risk"]),
+
+    // NUEVO: pasamos-through sin convertir a número
+    panelId: r?.panelId ?? null,
+    state: r?.state ?? null, // { mode, cause, lastChangeTs }
+    params: r?.params ?? null, // objeto con parámetros
   };
 }
 function avg(arr, key) {
@@ -30,7 +35,7 @@ function avg(arr, key) {
   const s = values.reduce((a, b) => a + b, 0);
   return s / values.length;
 }
-const fmt = (v, digits = 2) => (v == null ? "—" : v.toFixed(digits));
+const fmt = (v, digits = 2) => (v == null ? "—" : Number(v).toFixed(digits));
 const when = (ts) => {
   const n = num(ts);
   return n ? new Date(n).toLocaleTimeString() : "—";
@@ -47,6 +52,77 @@ const Badge = ({ label, tone = "ok" }) => {
     <span className={`px-2 py-0.5 rounded-md text-[11px] uppercase ${cls}`}>
       {label}
     </span>
+  );
+};
+
+// ===== NUEVO: Modo de limpieza (badge) =====
+const ModeBadge = ({ mode, cause, ts }) => {
+  const color =
+    mode === "RIGOROUS"
+      ? "#EF4444"
+      : mode === "REGULAR"
+      ? "#3B82F6"
+      : mode === "LIGHT"
+      ? "#10B981"
+      : mode === "IDLE"
+      ? "#9CA3AF"
+      : "#6B7280";
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className="inline-block w-2.5 h-2.5 rounded-full"
+        style={{ background: color }}
+        title={mode}
+      />
+      <div className="text-sm">
+        <b>{mode ?? "UNKNOWN"}</b>
+        {cause && <span className="text-white/60"> · {cause}</span>}
+        {ts && (
+          <span className="text-white/40 ml-2">
+            {new Date(ts).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ===== NUEVO: Tabla compacta de parámetros =====
+const PARAM_ROWS = [
+  ["brushRpm", "RPM escobilla", "rpm"],
+  ["waterPressure", "Presión agua", "bar"],
+  ["detergentFlowRate", "Flujo detergente", "L/min"],
+  ["vacuumPower", "Potencia vacío", "0..1"],
+  ["robotSpeed", "Velocidad", "m/s"],
+  ["pathSpacing", "Separación pasada", "m"],
+  ["passOverlap", "Overlap", "%"],
+  ["turnRadius", "Radio giro", "m"],
+  ["squeegeePressure", "Presión squeegee", "N"],
+  ["dwellTime", "Tiempo contacto", "s"],
+  ["rpmRampRate", "Rampa RPM", "rpm/s"],
+  ["maxWaterPerMin", "Máx agua/min", "L/min"],
+  ["maxEnergyPerMin", "Máx energía/min", "Wh/min"],
+];
+
+const ParamsTable = ({ params }) => {
+  if (!params) return null;
+  return (
+    <div className="mt-3 border border-white/10 rounded-lg p-3">
+      <div className="text-xs text-white/60 mb-2">Parámetros (en rampa)</div>
+      <table className="w-full text-sm">
+        <tbody>
+          {PARAM_ROWS.map(([k, label, unit]) => (
+            <tr key={k}>
+              <td className="py-1 pr-2 text-white/70">{label}</td>
+              <td className="py-1 text-right tabular-nums">
+                {params?.[k] ?? "—"}
+              </td>
+              <td className="py-1 pl-2 text-white/40">{unit}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 };
 
@@ -80,6 +156,17 @@ export default function StatusPanel({ readings = [], last }) {
         />
       </div>
 
+      {/* NUEVO: modo de limpieza (si viene en la señal) */}
+      {normalized?.state && (
+        <div className="mb-3">
+          <ModeBadge
+            mode={normalized.state.mode}
+            cause={normalized.state.cause}
+            ts={normalized.state.lastChangeTs}
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi title="Temp. promedio" value={`${fmt(aTemp)} °C`} />
         <Kpi title="Humedad promedio" value={`${fmt(aHum)} %`} />
@@ -96,6 +183,9 @@ export default function StatusPanel({ readings = [], last }) {
           }
         />
       </div>
+
+      {/* NUEVO: tabla de parámetros si vienen en la telemetría */}
+      {normalized?.params ? <ParamsTable params={normalized.params} /> : null}
     </div>
   );
 }

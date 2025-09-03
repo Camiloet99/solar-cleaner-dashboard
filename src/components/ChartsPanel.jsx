@@ -1,5 +1,6 @@
+// src/components/ChartsPanel.jsx
 import React, { useMemo } from "react";
-import { useUI } from "@/context/UIContext";
+import { useOptionalConfig } from "@/context/ConfigContext";
 import {
   LineChart,
   Line,
@@ -47,17 +48,20 @@ const Card = ({ title, children, height = 240 }) => (
 );
 
 export default function ChartsPanel({ readings = [] }) {
-  const { maxPoints } = useUI();
+  const cfg = useOptionalConfig();
+  const c = cfg?.config?.charts ?? {};
 
-  const data = useMemo(() => {
-    const mapped = readings.map(mapReading);
-    // Limita a los últimos N puntos
-    return mapped.length > maxPoints ? mapped.slice(-maxPoints) : mapped;
-  }, [readings, maxPoints]);
+  const type = c.smoothing === "linear" ? "linear" : "monotone";
+  const strokeWidth = Number.isFinite(+c.strokeWidth) ? +c.strokeWidth : 2;
+  const showDots = !!c.showDots;
+  const showGrid = c.showGrid !== false; // default true
 
-  const commonGrid = (
+  const data = useMemo(() => readings.map(mapReading), [readings]);
+
+  const Grid = showGrid ? (
     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--fg) / .15)" />
-  );
+  ) : null;
+
   const commonXAxis = (
     <XAxis
       dataKey="ts"
@@ -74,28 +78,28 @@ export default function ChartsPanel({ readings = [] }) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {/* Potencia */}
+      {/* 1) Potencia */}
       <Card title="Potencia (W)">
         <LineChart data={data}>
-          {commonGrid}
+          {Grid}
           {commonXAxis}
           <YAxis stroke="hsl(var(--fg) / .6)" />
           {commonTooltip}
           <Line
-            type="monotone"
+            type={type}
             dataKey="power"
             stroke="hsl(var(--chart-1))"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={strokeWidth}
+            dot={showDots}
             isAnimationActive={false}
           />
         </LineChart>
       </Card>
 
-      {/* Temperatura & Humedad */}
+      {/* 2) Temperatura & Humedad */}
       <Card title="Temperatura (°C) & Humedad (%)">
         <LineChart data={data}>
-          {commonGrid}
+          {Grid}
           {commonXAxis}
           <YAxis yAxisId="left" stroke="hsl(var(--fg) / .6)" />
           <YAxis
@@ -106,47 +110,47 @@ export default function ChartsPanel({ readings = [] }) {
           {commonTooltip}
           <Line
             yAxisId="left"
-            type="monotone"
+            type={type}
             dataKey="temperature"
             stroke="hsl(var(--chart-2))"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={strokeWidth}
+            dot={showDots}
             isAnimationActive={false}
           />
           <Line
             yAxisId="right"
-            type="monotone"
+            type={type}
             dataKey="humidity"
             stroke="hsl(var(--chart-3))"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={strokeWidth}
+            dot={showDots}
             isAnimationActive={false}
           />
         </LineChart>
       </Card>
 
-      {/* Polvo */}
+      {/* 3) Polvo */}
       <Card title="Polvo (ppm)">
         <LineChart data={data}>
-          {commonGrid}
+          {Grid}
           {commonXAxis}
           <YAxis stroke="hsl(var(--fg) / .6)" />
           {commonTooltip}
           <Line
-            type="monotone"
+            type={type}
             dataKey="dust"
             stroke="hsl(var(--chart-4))"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={strokeWidth}
+            dot={showDots}
             isAnimationActive={false}
           />
         </LineChart>
       </Card>
 
-      {/* Vibración & Riesgo */}
+      {/* 4) Vibración & Riesgo */}
       <Card title="Vibración (m/s²) & Riesgo de microfractura (0–1)">
         <LineChart data={data}>
-          {commonGrid}
+          {Grid}
           {commonXAxis}
           <YAxis yAxisId="left" stroke="hsl(var(--fg) / .6)" />
           <YAxis
@@ -158,20 +162,20 @@ export default function ChartsPanel({ readings = [] }) {
           {commonTooltip}
           <Line
             yAxisId="left"
-            type="monotone"
+            type={type}
             dataKey="vibration"
             stroke="hsl(var(--chart-5))"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={strokeWidth}
+            dot={showDots}
             isAnimationActive={false}
           />
           <Line
             yAxisId="right"
-            type="monotone"
+            type={type}
             dataKey="risk"
             stroke="hsl(var(--chart-3))"
-            strokeWidth={2}
-            dot={false}
+            strokeWidth={strokeWidth}
+            dot={showDots}
             isAnimationActive={false}
           />
         </LineChart>

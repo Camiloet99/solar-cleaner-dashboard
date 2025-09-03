@@ -1,18 +1,14 @@
+// src/context/UIContext.jsx
 import { createContext, useContext, useMemo, useState } from "react";
-import { useOptionalConfig } from "@/context/ConfigContext";
 
 const UIContext = createContext(null);
 
 export function UIProvider({ children }) {
-  const cfg = useOptionalConfig();
-
-  const defaultRealtime = cfg?.config?.data?.defaultRealtime ?? true;
-  const defaultRanges = cfg?.config?.data?.ranges ?? [5, 15, 60];
-  const defaultMaxPoints = cfg?.config?.charts?.maxPoints ?? 15; // si no existe en config, usa 15
-
-  const [realtime, setRealtime] = useState(defaultRealtime);
-  const [rangeMinutes, setRangeMinutes] = useState(defaultRanges[1] ?? 15);
-  const [maxPoints, setMaxPoints] = useState(defaultMaxPoints); // 10 | 15 | 20
+  // Estados globales de UI
+  const [realtime, setRealtime] = useState(true);
+  const [rangeMinutes, setRangeMinutes] = useState(15); // 5 / 15 / 60 (topbar)
+  const [maxPoints, setMaxPoints] = useState(15); // 10 / 15 / 20 (topbar)
+  const pointOptions = [10, 15, 20];
 
   const value = useMemo(
     () => ({
@@ -20,12 +16,11 @@ export function UIProvider({ children }) {
       setRealtime,
       rangeMinutes,
       setRangeMinutes,
-      ranges: defaultRanges,
       maxPoints,
       setMaxPoints,
-      pointOptions: [10, 15, 20],
+      pointOptions,
     }),
-    [realtime, rangeMinutes, defaultRanges, maxPoints]
+    [realtime, rangeMinutes, maxPoints]
   );
 
   return <UIContext.Provider value={value}>{children}</UIContext.Provider>;
@@ -36,3 +31,5 @@ export function useUI() {
   if (!ctx) throw new Error("useUI must be used within UIProvider");
   return ctx;
 }
+
+export { UIContext };
